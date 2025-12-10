@@ -36,18 +36,19 @@ class GeminiService(AIService):
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
         except ImportError:
             raise Exception("Google Generative AI module not found. Please install 'google-generativeai'.")
 
     def get_response(self, user_input, system_prompt):
         try:
-            # Gemini doesn't separate system prompt exactly like OpenAI in the simplest API, 
-            # but we can prepend it or use the system_instruction if available in newer versions.
-            # For robustness, we'll prepend the system prompt context.
+            import google.generativeai as genai
+            
+            # For v1beta API (google-generativeai 0.8.x), use gemini-pro
+            # Combine system prompt with user input since system_instruction may not be supported
             combined_prompt = f"{system_prompt}\n\nUser Request: {user_input}"
             
-            response = self.model.generate_content(combined_prompt)
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            response = model.generate_content(combined_prompt)
             return response.text
         except Exception as e:
             return json.dumps({"content": f"Error calling Gemini API: {str(e)}", "query": ""})

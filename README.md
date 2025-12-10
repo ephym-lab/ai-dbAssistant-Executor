@@ -41,7 +41,7 @@ An intelligent SQL query generator that converts natural language to safe, corre
 1. **Start the Server**:
    ```bash
    cd src
-   uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+   uvicorn routes.api:app --host 0.0.0.0 --port 8000 --reload
    ```
 
 2. **Test the API**:
@@ -104,13 +104,26 @@ API information and available endpoints.
 
 ```
 DBAssistantMl/
-├── src/
-│   ├── api.py           # FastAPI server
-│   ├── main.py          # CLI interface
-│   ├── ai_service.py    # AI provider abstraction
-│   └── prompts.py       # System prompts
-├── requirements.txt
-└── .env                 # Configuration (create this)
+├── .env                 # Environment configuration (create from .env.example)
+├── .env.example         # Environment template
+├── .gitignore          # Git ignore rules
+├── README.md           # This file
+├── requirements.txt    # Python dependencies
+├── venv/               # Virtual environment
+└── src/
+    ├── main.py         # CLI entry point
+    ├── config/         # Configuration
+    │   ├── __init__.py
+    │   └── prompts.py  # System prompts
+    ├── schemas/        # Data models
+    │   ├── __init__.py
+    │   └── sql_schemas.py  # Pydantic models
+    ├── services/       # Business logic
+    │   ├── __init__.py
+    │   └── ai_service.py   # AI provider abstraction
+    └── routes/         # API endpoints
+        ├── __init__.py
+        └── api.py      # FastAPI routes
 ```
 
 ## Switching Providers
@@ -129,7 +142,7 @@ No code changes needed!
 Run with auto-reload:
 ```bash
 cd src
-uvicorn api:app --reload
+uvicorn routes.api:app --reload
 ```
 
 ## Safety Features

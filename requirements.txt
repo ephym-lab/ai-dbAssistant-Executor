@@ -3,3 +3,5 @@ openai
 google-generativeai
 fastapi
 uvicorn[standard]
+psycopg2-binary
+mysql-connector-python

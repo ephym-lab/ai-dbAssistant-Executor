@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
 from config import SYSTEM_PROMPT
 from services import AIServiceFactory, DBExecutorFactory, QueryValidator
-from schemas import QuestionRequest, SQLResponse, ExecuteRequest, ExecuteResponse, DBInfoResponse, ConnectRequest
+from schemas import QuestionRequest, SQLResponse, ExecuteRequest, ExecuteResponse, DBInfoResponse, ConnectRequest, PermissionsRequest
 
 # Load environment variables
 load_dotenv()
@@ -22,6 +22,10 @@ ai_service = AIServiceFactory.get_service()
 # Global database executor (managed connection)
 db_executor = None
 
+# Global permission settings (can be changed per session)
+allow_write_operations = False
+allow_ddl_operations = False
+
 
 @app.get("/")
 def read_root():
@@ -34,7 +38,9 @@ def read_root():
             "POST /validate-sql": "Validate SQL query (dry-run)",
             "GET /db-info": "Database connection information",
             "POST /connect-db": "Connect to database",
-            "POST /disconnect-db": "Disconnect from database"
+            "POST /disconnect-db": "Disconnect from database",
+            "POST /set-permissions": "Set query execution permissions",
+            "GET /get-permissions": "Get current permissions"
         }
     }
 
@@ -44,13 +50,21 @@ def generate_sql(request: QuestionRequest):
     Generate SQL query from natural language question.
     
     - **question**: Natural language question
+    - **db_type**: Optional database type ("postgresql" or "mysql") for database-specific SQL
     - **db_schema**: Optional database schema context
     """
     try:
-        # Enhance prompt with schema if provided
+        # Build the user input with context
         user_input = request.question
+        
+        # Add database type context if provided
+        if request.db_type:
+            db_type_context = f"Target Database: {request.db_type.upper()}\n"
+            user_input = db_type_context + user_input
+        
+        # Add schema context if provided
         if request.db_schema:
-            user_input = f"Database Schema:\n{request.db_schema}\n\nUser Question: {request.question}"
+            user_input = f"Database Schema:\n{request.db_schema}\n\n{user_input}"
         
         # Get response from AI service
         response_str = ai_service.get_response(user_input, SYSTEM_PROMPT)
@@ -86,24 +100,31 @@ def health_check():
 @app.post("/execute-sql", response_model=ExecuteResponse)
 def execute_sql(request: ExecuteRequest):
     """
-    Execute a SQL query against the configured database.
+    Execute a SQL query against the connected database.
+    
+    Note: You must connect to a database using /connect-db before executing queries.
     
     - **query**: SQL query to execute
     - **dry_run**: If true, validates query without executing 
     """
-    global db_executor
+    global db_executor, allow_write_operations, allow_ddl_operations
     
     try:
+        # Check if database is connected
+        if not db_executor or not db_executor.connection:
+            raise HTTPException(
+                status_code=400,
+                detail="No database connection. Please connect to a database using /connect-db endpoint first."
+            )
+        
         # Get configuration
-        allow_write = os.getenv("ALLOW_WRITE_OPERATIONS", "false").lower() == "true"
-        allow_ddl = os.getenv("ALLOW_DDL_OPERATIONS", "false").lower() == "true"
         max_rows = int(os.getenv("MAX_ROWS_RETURNED", 1000))
         
-        # Validate query
+        # Validate query using global permissions
         is_valid, error_msg = QueryValidator.validate_query(
             request.query,
-            allow_write=allow_write,
-            allow_ddl=allow_ddl
+            allow_write=allow_write_operations,
+            allow_ddl=allow_ddl_operations
         )
         
         if not is_valid:
@@ -112,26 +133,8 @@ def execute_sql(request: ExecuteRequest):
         # Add LIMIT if needed for SELECT queries
         query = QueryValidator.add_limit_if_needed(request.query, max_rows)
         
-        # Use global executor if available, otherwise create temporary one
-        use_global = db_executor and db_executor.connection
-        
-        if use_global:
-            executor = db_executor
-        else:
-            # Get temporary executor
-            executor = DBExecutorFactory.get_executor()
-            if not executor:
-                raise HTTPException(
-                    status_code=500,
-                    detail="Database not configured. Set DB_TYPE environment variable."
-                )
-        
-        # Execute query
-        result = executor.execute_query(query, dry_run=request.dry_run)
-        
-        # Only disconnect if using temporary connection
-        if not use_global:
-            executor.disconnect()
+        # Execute query using the persistent connection
+        result = db_executor.execute_query(query, dry_run=request.dry_run)
         
         return ExecuteResponse(**result)
         
@@ -154,24 +157,20 @@ def validate_sql(request: ExecuteRequest):
 def get_db_info():
     """
     Get database connection information.
+    
+    Note: Returns info only if connected via /connect-db endpoint.
     """
     global db_executor
     
     try:
-        # Use global executor if available
-        if db_executor:
-            info = db_executor.get_connection_info()
-            return DBInfoResponse(**info)
-        
-        # Otherwise create temporary executor to get info
-        executor = DBExecutorFactory.get_executor()
-        if not executor:
+        # Check if database is connected
+        if not db_executor:
             raise HTTPException(
-                status_code=500,
-                detail="Database not configured. Set DB_TYPE environment variable."
+                status_code=400,
+                detail="No database connection. Please connect to a database using /connect-db endpoint first."
             )
         
-        info = executor.get_connection_info()
+        info = db_executor.get_connection_info()
         return DBInfoResponse(**info)
         
     except HTTPException:
@@ -255,3 +254,43 @@ def disconnect_database():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/set-permissions")
+def set_permissions(request: PermissionsRequest):
+    """
+    Set permissions for query execution.
+    
+    - **allow_write_operations**: Allow INSERT, UPDATE, DELETE operations
+    - **allow_ddl_operations**: Allow CREATE, DROP, ALTER, TRUNCATE operations
+    """
+    global allow_write_operations, allow_ddl_operations
+    
+    try:
+        # Update global permissions
+        allow_write_operations = request.allow_write_operations
+        allow_ddl_operations = request.allow_ddl_operations
+        
+        return {
+            "success": True,
+            "message": "Permissions updated successfully",
+            "permissions": {
+                "allow_write_operations": allow_write_operations,
+                "allow_ddl_operations": allow_ddl_operations
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/get-permissions")
+def get_permissions():
+    """
+    Get current query execution permissions.
+    """
+    global allow_write_operations, allow_ddl_operations
+    
+    return {
+        "allow_write_operations": allow_write_operations,
+        "allow_ddl_operations": allow_ddl_operations
+    }
+

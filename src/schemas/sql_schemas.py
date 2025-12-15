@@ -4,6 +4,7 @@ from typing import List, Optional, Any
 class QuestionRequest(BaseModel):
     """Request model for SQL generation endpoint."""
     question: str
+    db_type: str | None = None  # "postgresql" or "mysql"
     db_schema: str | None = None
 
 class SQLResponse(BaseModel):
@@ -41,3 +42,9 @@ class ConnectRequest(BaseModel):
     """Request model for database connection endpoint."""
     db_type: str  # "postgresql" or "mysql"
     connection_string: str
+
+class PermissionsRequest(BaseModel):
+    """Request model for setting query execution permissions."""
+    allow_write_operations: bool = False
+    allow_ddl_operations: bool = False
+

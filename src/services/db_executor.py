@@ -105,6 +105,11 @@ class DBExecutor(ABC):
     def get_connection_info(self) -> Dict[str, Any]:
         """Get database connection information."""
         pass
+    
+    @abstractmethod
+    def get_table_schema(self) -> List[Dict[str, Any]]:
+        """Get database table schema information."""
+        pass
 
 
 class PostgreSQLExecutor(DBExecutor):
@@ -194,6 +199,60 @@ class PostgreSQLExecutor(DBExecutor):
             "database": self.config.get('database'),
             "connected": self.connection is not None
         }
+    
+    def get_table_schema(self) -> List[Dict[str, Any]]:
+        """Get table schema information from PostgreSQL database."""
+        if not self.connection:
+            return []
+        
+        cursor = self.connection.cursor()
+        tables = []
+        
+        try:
+            # Get all tables in the public schema
+            cursor.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+            """)
+            
+            table_names = [row[0] for row in cursor.fetchall()]
+            
+            # For each table, get column information
+            for table_name in table_names:
+                cursor.execute("""
+                    SELECT 
+                        column_name,
+                        data_type,
+                        is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' 
+                    AND table_name = %s
+                    ORDER BY ordinal_position
+                """, (table_name,))
+                
+                columns = []
+                for row in cursor.fetchall():
+                    columns.append({
+                        "name": row[0],
+                        "type": row[1],
+                        "nullable": row[2] == 'YES'
+                    })
+                
+                tables.append({
+                    "name": table_name,
+                    "columns": columns
+                })
+            
+            return tables
+            
+        except Exception as e:
+            print(f"Error fetching table schema: {e}")
+            return []
+        finally:
+            cursor.close()
 
 
 class MySQLExecutor(DBExecutor):
@@ -287,6 +346,63 @@ class MySQLExecutor(DBExecutor):
             "database": self.config.get('database'),
             "connected": self.connection is not None
         }
+    
+    def get_table_schema(self) -> List[Dict[str, Any]]:
+        """Get table schema information from MySQL database."""
+        if not self.connection:
+            return []
+        
+        cursor = self.connection.cursor()
+        tables = []
+        
+        try:
+            # Get database name
+            database_name = self.config.get('database')
+            
+            # Get all tables
+            cursor.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = %s 
+                AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+            """, (database_name,))
+            
+            table_names = [row[0] for row in cursor.fetchall()]
+            
+            # For each table, get column information
+            for table_name in table_names:
+                cursor.execute("""
+                    SELECT 
+                        column_name,
+                        column_type,
+                        is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = %s 
+                    AND table_name = %s
+                    ORDER BY ordinal_position
+                """, (database_name, table_name))
+                
+                columns = []
+                for row in cursor.fetchall():
+                    columns.append({
+                        "name": row[0],
+                        "type": row[1],
+                        "nullable": row[2] == 'YES'
+                    })
+                
+                tables.append({
+                    "name": table_name,
+                    "columns": columns
+                })
+            
+            return tables
+            
+        except Exception as e:
+            print(f"Error fetching table schema: {e}")
+            return []
+        finally:
+            cursor.close()
 
 
 class DBExecutorFactory:

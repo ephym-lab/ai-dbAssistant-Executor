@@ -30,21 +30,34 @@ class ExecuteResponse(BaseModel):
     dry_run: bool = False
     explain: Optional[Any] = None
 
+class ColumnInfo(BaseModel):
+    """Column information model."""
+    name: str
+    type: str
+    nullable: bool
+
+class TableInfo(BaseModel):
+    """Table information model."""
+    name: str
+    columns: List[ColumnInfo]
+
 class DBInfoResponse(BaseModel):
     """Response model for database connection info."""
     type: str
     host: str
     port: int
     database: str
+    database_name: str  # Alias for database
     connected: bool
+    tables: List[TableInfo] = []
 
 class ConnectRequest(BaseModel):
     """Request model for database connection endpoint."""
     db_type: str  # "postgresql" or "mysql"
     connection_string: str
+    project_id: Optional[int] = None  # Project ID to fetch permissions from Go backend
 
-class PermissionsRequest(BaseModel):
-    """Request model for setting query execution permissions."""
-    allow_write_operations: bool = False
-    allow_ddl_operations: bool = False
+
+
+
 

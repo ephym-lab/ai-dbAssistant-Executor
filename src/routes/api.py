@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
 from config import SYSTEM_PROMPT
 from services import AIServiceFactory, DBExecutorFactory, QueryValidator
-from schemas import QuestionRequest, SQLResponse, ExecuteRequest, ExecuteResponse, DBInfoResponse, ConnectRequest, PermissionsRequest
+from schemas import QuestionRequest, SQLResponse, ExecuteRequest, ExecuteResponse, DBInfoResponse, ConnectRequest
 
 # Load environment variables
 load_dotenv()
@@ -22,10 +22,6 @@ ai_service = AIServiceFactory.get_service()
 # Global database executor (managed connection)
 db_executor = None
 
-# Global permission settings (can be changed per session)
-allow_write_operations = False
-allow_ddl_operations = False
-
 
 @app.get("/")
 def read_root():
@@ -37,10 +33,8 @@ def read_root():
             "POST /execute-sql": "Execute SQL query",
             "POST /validate-sql": "Validate SQL query (dry-run)",
             "GET /db-info": "Database connection information",
-            "POST /connect-db": "Connect to database",
-            "POST /disconnect-db": "Disconnect from database",
-            "POST /set-permissions": "Set query execution permissions",
-            "GET /get-permissions": "Get current permissions"
+            "POST /connect-db": "Connect to database (requires project_id)",
+            "POST /disconnect-db": "Disconnect from database"
         }
     }
 
@@ -103,11 +97,12 @@ def execute_sql(request: ExecuteRequest):
     Execute a SQL query against the connected database.
     
     Note: You must connect to a database using /connect-db before executing queries.
+    Validation is handled by the Go backend.
     
     - **query**: SQL query to execute
     - **dry_run**: If true, validates query without executing 
     """
-    global db_executor, allow_write_operations, allow_ddl_operations
+    global db_executor
     
     try:
         # Check if database is connected
@@ -119,16 +114,6 @@ def execute_sql(request: ExecuteRequest):
         
         # Get configuration
         max_rows = int(os.getenv("MAX_ROWS_RETURNED", 1000))
-        
-        # Validate query using global permissions
-        is_valid, error_msg = QueryValidator.validate_query(
-            request.query,
-            allow_write=allow_write_operations,
-            allow_ddl=allow_ddl_operations
-        )
-        
-        if not is_valid:
-            raise HTTPException(status_code=403, detail=error_msg)
         
         # Add LIMIT if needed for SELECT queries
         query = QueryValidator.add_limit_if_needed(request.query, max_rows)
@@ -156,7 +141,7 @@ def validate_sql(request: ExecuteRequest):
 @app.get("/db-info", response_model=DBInfoResponse)
 def get_db_info():
     """
-    Get database connection information.
+    Get database connection information and table schema.
     
     Note: Returns info only if connected via /connect-db endpoint.
     """
@@ -171,6 +156,12 @@ def get_db_info():
             )
         
         info = db_executor.get_connection_info()
+        tables = db_executor.get_table_schema()
+        
+        # Add database_name alias and tables
+        info["database_name"] = info["database"]
+        info["tables"] = tables
+        
         return DBInfoResponse(**info)
         
     except HTTPException:
@@ -185,6 +176,7 @@ def connect_database(request: ConnectRequest):
     
     - **db_type**: Database type ("postgresql" or "mysql")
     - **connection_string**: Database connection string (e.g., postgresql://user:pass@host:port/db)
+    - **project_id**: Project ID (stored for reference, validation handled by Go backend)
     """
     global db_executor
     
@@ -214,7 +206,8 @@ def connect_database(request: ConnectRequest):
         return {
             "success": True,
             "message": "Database connected successfully",
-            "connection_info": db_executor.get_connection_info()
+            "connection_info": db_executor.get_connection_info(),
+            "project_id": request.project_id
         }
         
     except ValueError as e:
@@ -255,42 +248,5 @@ def disconnect_database():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/set-permissions")
-def set_permissions(request: PermissionsRequest):
-    """
-    Set permissions for query execution.
-    
-    - **allow_write_operations**: Allow INSERT, UPDATE, DELETE operations
-    - **allow_ddl_operations**: Allow CREATE, DROP, ALTER, TRUNCATE operations
-    """
-    global allow_write_operations, allow_ddl_operations
-    
-    try:
-        # Update global permissions
-        allow_write_operations = request.allow_write_operations
-        allow_ddl_operations = request.allow_ddl_operations
-        
-        return {
-            "success": True,
-            "message": "Permissions updated successfully",
-            "permissions": {
-                "allow_write_operations": allow_write_operations,
-                "allow_ddl_operations": allow_ddl_operations
-            }
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/get-permissions")
-def get_permissions():
-    """
-    Get current query execution permissions.
-    """
-    global allow_write_operations, allow_ddl_operations
-    
-    return {
-        "allow_write_operations": allow_write_operations,
-        "allow_ddl_operations": allow_ddl_operations
-    }
 

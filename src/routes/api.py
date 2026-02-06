@@ -2,9 +2,13 @@ import os
 import json
 from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
-from config import SYSTEM_PROMPT
-from services import AIServiceFactory, DBExecutorFactory, QueryValidator
-from schemas import QuestionRequest, SQLResponse, ExecuteRequest, ExecuteResponse, DBInfoResponse, ConnectRequest
+from src.config.prompts import SYSTEM_PROMPT
+from src.services import AIServiceFactory, DBExecutorFactory, QueryValidator
+from src.schemas import (
+    QuestionRequest, SQLResponse, ExecuteRequest, ExecuteResponse, 
+    DBInfoResponse, ConnectRequest, SchemaRequest, SchemaResponse,
+    IngestSchemaRequest, IngestSchemaResponse, UpdateSchemaRequest
+)
 
 # Load environment variables
 load_dotenv()
@@ -26,39 +30,82 @@ db_executor = None
 @app.get("/")
 def read_root():
     return {
-        "message": "AI SQL Assistant API",
+        "message": "AI SQL Assistant API - Context-Aware Edition",
         "service": ai_service.__class__.__name__,
+        "features": [
+            "Context-aware SQL generation with Qdrant schema retrieval",
+            "Request validation against actual database schema",
+            "Intelligent suggestions for invalid requests",
+            "Automatic schema ingestion from database to Qdrant"
+        ],
         "endpoints": {
-            "POST /generate-sql": "Generate SQL from natural language",
+            "POST /generate-sql": "Generate SQL from natural language (supports project_id for schema context)",
             "POST /execute-sql": "Execute SQL query",
             "POST /validate-sql": "Validate SQL query (dry-run)",
             "GET /db-info": "Database connection information",
             "POST /connect-db": "Connect to database (requires project_id)",
-            "POST /disconnect-db": "Disconnect from database"
+            "POST /disconnect-db": "Disconnect from database",
+            "POST /get-schema": "Get database schema and table information",
+            "POST /ingest-schema": "Ingest database schema into Qdrant for context-aware generation",
+            "POST /update-schema": "Update existing project schema in Qdrant (replaces old schema)"
         }
     }
 
 @app.post("/generate-sql", response_model=SQLResponse)
 def generate_sql(request: QuestionRequest):
     """
-    Generate SQL query from natural language question.
+    Generate SQL query from natural language question with context-awareness.
     
     - **question**: Natural language question
     - **db_type**: Optional database type ("postgresql" or "mysql") for database-specific SQL
-    - **db_schema**: Optional database schema context
+    - **db_schema**: Optional database schema context (legacy support)
+    - **project_id**: Optional project ID for retrieving schema from Qdrant
     """
     try:
+        from src.services import QdrantService, ContextBuilder
+        
         # Build the user input with context
         user_input = request.question
+        schema_context = ""
         
-        # Add database type context if provided
-        if request.db_type:
+        # Try to retrieve schema from Qdrant if project_id is provided
+        if request.project_id:
+            try:
+                qdrant_service = QdrantService()
+                
+                # Retrieve relevant schema chunks using semantic search
+                schema_chunks = qdrant_service.retrieve_schema_context(
+                    project_id=request.project_id,
+                    query=request.question,
+                    limit=5
+                )
+                
+                # Build formatted schema context
+                if schema_chunks:
+                    schema_context = ContextBuilder.build_schema_context(schema_chunks)
+                else:
+                    # No schema found for this project
+                    schema_context = f"No schema context found for project_id: {request.project_id}"
+                    
+            except Exception as e:
+                print(f"Error retrieving schema from Qdrant: {e}")
+                schema_context = f"Error retrieving schema: {str(e)}"
+        
+        # Fallback to legacy db_schema if provided and no Qdrant context
+        elif request.db_schema:
+            schema_context = request.db_schema
+        
+        # Build context-aware prompt
+        if schema_context and schema_context != "No schema context available.":
+            user_input = ContextBuilder.build_context_aware_prompt(
+                user_request=request.question,
+                schema_context=schema_context,
+                db_type=request.db_type or "postgresql"
+            )
+        elif request.db_type:
+            # Add database type context if provided but no schema
             db_type_context = f"Target Database: {request.db_type.upper()}\n"
             user_input = db_type_context + user_input
-        
-        # Add schema context if provided
-        if request.db_schema:
-            user_input = f"Database Schema:\n{request.db_schema}\n\n{user_input}"
         
         # Get response from AI service
         response_str = ai_service.get_response(user_input, SYSTEM_PROMPT)
@@ -70,15 +117,34 @@ def generate_sql(request: QuestionRequest):
         
         try:
             response_json = json.loads(clean_str)
+            
+            # Ensure all required fields are present
+            decision = response_json.get("decision", "EXECUTE")
+            content = response_json.get("content", "")
+            query = response_json.get("query")
+            suggestions = response_json.get("suggestions", [])
+            
+            # Handle legacy responses that don't have decision field
+            if "decision" not in response_json:
+                # If there's a query, assume EXECUTE
+                if query:
+                    decision = "EXECUTE"
+                else:
+                    decision = "EXPLAIN"
+            
             return SQLResponse(
-                content=response_json.get("content", ""),
-                query=response_json.get("query", "")
+                decision=decision,
+                content=content,
+                query=query,
+                suggestions=suggestions if suggestions else []
             )
         except json.JSONDecodeError:
-            # If response is not valid JSON, return it as content
+            # If response is not valid JSON, return it as an error
             return SQLResponse(
-                content=f"Error parsing response: {response_str}",
-                query=""
+                decision="EXPLAIN",
+                content=f"Error parsing AI response: {response_str}",
+                query=None,
+                suggestions=[]
             )
             
     except Exception as e:
@@ -248,5 +314,245 @@ def disconnect_database():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/get-schema", response_model=SchemaResponse)
+def get_schema(request: SchemaRequest):
+    """
+    Get database schema and table information.
+    
+    Creates a temporary connection to fetch schema information.
+    
+    - **db_type**: Database type ("postgresql" or "mysql")
+    - **connection_string**: Database connection string
+    """
+    temp_executor = None
+    
+    try:
+        # Create temporary executor from connection string
+        temp_executor = DBExecutorFactory.from_connection_string(
+            db_type=request.db_type,
+            connection_string=request.connection_string
+        )
+        if not temp_executor:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to create database executor from connection string."
+            )
+        
+        # Connect to database
+        temp_executor.connect()
+        
+        # Get table schema
+        tables = temp_executor.get_table_schema()
+        
+        # Get connection info
+        conn_info = temp_executor.get_connection_info()
+        
+        # Disconnect from database
+        temp_executor.disconnect()
+        
+        return SchemaResponse(
+            db_type=conn_info["type"],
+            database=conn_info["database"],
+            host=conn_info["host"],
+            port=conn_info["port"],
+            table_count=len(tables),
+            tables=tables
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Ensure connection is closed even if an error occurs
+        if temp_executor and temp_executor.connection:
+            try:
+                temp_executor.disconnect()
+            except:
+                pass
+
+@app.post("/ingest-schema", response_model=IngestSchemaResponse)
+def ingest_schema(request: IngestSchemaRequest):
+    """
+    Ingest database schema into Qdrant for context-aware SQL generation.
+    
+    This endpoint:
+    1. Connects to the specified database
+    2. Retrieves the complete schema (tables, columns, types)
+    3. Stores it in Qdrant with the project_id for later retrieval
+    
+    - **project_id**: Project identifier for schema isolation
+    - **db_type**: Database type ("postgresql" or "mysql")
+    - **connection_string**: Database connection string
+    - **clear_existing**: If True, delete existing schema for this project first
+    """
+    temp_executor = None
+    
+    try:
+        from src.services import QdrantService
+        
+        # Create temporary executor from connection string
+        temp_executor = DBExecutorFactory.from_connection_string(
+            db_type=request.db_type,
+            connection_string=request.connection_string
+        )
+        if not temp_executor:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to create database executor from connection string."
+            )
+        
+        # Connect to database
+        temp_executor.connect()
+        
+        # Get table schema
+        tables = temp_executor.get_table_schema()
+        
+        if not tables:
+            return IngestSchemaResponse(
+                success=False,
+                project_id=request.project_id,
+                tables_ingested=0,
+                message="No tables found in database",
+                error="Database has no tables or schema retrieval failed"
+            )
+        
+        # Disconnect from database
+        temp_executor.disconnect()
+        
+        # Ingest schema into Qdrant
+        qdrant_service = QdrantService()
+        result = qdrant_service.ingest_schema(
+            project_id=request.project_id,
+            tables=tables,
+            db_type=request.db_type,
+            clear_existing=request.clear_existing
+        )
+        
+        return IngestSchemaResponse(
+            success=result["success"],
+            project_id=result["project_id"],
+            tables_ingested=result.get("tables_ingested"),
+            message=result["message"],
+            error=result.get("error")
+        )
+        
+    except ValueError as e:
+        return IngestSchemaResponse(
+            success=False,
+            project_id=request.project_id,
+            message=f"Validation error: {str(e)}",
+            error=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        return IngestSchemaResponse(
+            success=False,
+            project_id=request.project_id,
+            message=f"Failed to ingest schema: {str(e)}",
+            error=str(e)
+        )
+    finally:
+        # Ensure connection is closed even if an error occurs
+        if temp_executor and temp_executor.connection:
+            try:
+                temp_executor.disconnect()
+            except:
+                pass
 
 
+@app.post("/update-schema", response_model=IngestSchemaResponse)
+def update_schema(request: UpdateSchemaRequest):
+    """
+    Update existing project schema in Qdrant.
+    
+    This endpoint:
+    1. Deletes the existing schema for the project
+    2. Connects to the database
+    3. Retrieves the fresh schema
+    4. Stores the updated schema in Qdrant
+    
+    This is a convenience endpoint that automatically sets clear_existing=True.
+    Use this when your database schema has changed and you want to refresh it.
+    
+    - **project_id**: Project identifier
+    - **db_type**: Database type ("postgresql" or "mysql")
+    - **connection_string**: Database connection string
+    """
+    temp_executor = None
+    
+    try:
+        from src.services import QdrantService
+        
+        # Create temporary executor from connection string
+        temp_executor = DBExecutorFactory.from_connection_string(
+            db_type=request.db_type,
+            connection_string=request.connection_string
+        )
+        if not temp_executor:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to create database executor from connection string."
+            )
+        
+        # Connect to database
+        temp_executor.connect()
+        
+        # Get table schema
+        tables = temp_executor.get_table_schema()
+        
+        if not tables:
+            return IngestSchemaResponse(
+                success=False,
+                project_id=request.project_id,
+                tables_ingested=0,
+                message="No tables found in database",
+                error="Database has no tables or schema retrieval failed"
+            )
+        
+        # Disconnect from database
+        temp_executor.disconnect()
+        
+        # Update schema in Qdrant (clear_existing=True)
+        qdrant_service = QdrantService()
+        result = qdrant_service.ingest_schema(
+            project_id=request.project_id,
+            tables=tables,
+            db_type=request.db_type,
+            clear_existing=True  # Always clear when updating
+        )
+        
+        return IngestSchemaResponse(
+            success=result["success"],
+            project_id=result["project_id"],
+            tables_ingested=result.get("tables_ingested"),
+            message=f"Updated schema: {result['message']}",
+            error=result.get("error")
+        )
+        
+    except ValueError as e:
+        return IngestSchemaResponse(
+            success=False,
+            project_id=request.project_id,
+            message=f"Validation error: {str(e)}",
+            error=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        return IngestSchemaResponse(
+            success=False,
+            project_id=request.project_id,
+            message=f"Failed to update schema: {str(e)}",
+            error=str(e)
+        )
+    finally:
+        # Ensure connection is closed even if an error occurs
+        if temp_executor and temp_executor.connection:
+            try:
+                temp_executor.disconnect()
+            except:
+                pass

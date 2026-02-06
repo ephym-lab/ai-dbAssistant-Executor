@@ -6,3 +6,4 @@ uvicorn[standard]
 psycopg2-binary
 mysql-connector-python
 requests
+qdrant-client

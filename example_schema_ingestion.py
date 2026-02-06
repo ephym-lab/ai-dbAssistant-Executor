@@ -22,7 +22,7 @@ def ingest_schema_example():
     payload = {
         "project_id": "11",
         "db_type": "postgresql",
-        "connection_string": "postgresql://dbassistanttest_ugz0_user:3plqLUCoP8d6Eue7fVPuLar2Naf4xs4x@dpg-d62pa1ffte5s73b8qjng-a.frankfurt-postgres.render.com/dbassistanttest_ugz0",
+        "connection_string": "",
         "clear_existing": True  # Clear any existing schema for this project
     }
     

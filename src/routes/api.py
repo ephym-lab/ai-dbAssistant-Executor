@@ -7,7 +7,8 @@ from src.services import AIServiceFactory, DBExecutorFactory, QueryValidator
 from src.schemas import (
     QuestionRequest, SQLResponse, ExecuteRequest, ExecuteResponse, 
     DBInfoResponse, ConnectRequest, SchemaRequest, SchemaResponse,
-    IngestSchemaRequest, IngestSchemaResponse, UpdateSchemaRequest
+    IngestSchemaRequest, IngestSchemaResponse, UpdateSchemaRequest,
+    QdrantSchemaRequest, QdrantSchemaResponse
 )
 
 # Load environment variables
@@ -45,7 +46,8 @@ def read_root():
             "GET /db-info": "Database connection information",
             "POST /connect-db": "Connect to database (requires project_id)",
             "POST /disconnect-db": "Disconnect from database",
-            "POST /get-schema": "Get database schema and table information",
+            "POST /get-schema": "Get database schema by connecting to database",
+            "POST /get-schema-from-qdrant": "Get database schema from Qdrant (requires only project_id)",
             "POST /ingest-schema": "Ingest database schema into Qdrant for context-aware generation",
             "POST /update-schema": "Update existing project schema in Qdrant (replaces old schema)"
         }
@@ -556,3 +558,88 @@ def update_schema(request: UpdateSchemaRequest):
                 temp_executor.disconnect()
             except:
                 pass
+
+@app.post("/get-schema-from-qdrant", response_model=QdrantSchemaResponse)
+def get_schema_from_qdrant(request: QdrantSchemaRequest):
+    """
+    Get database schema from Qdrant using project_id.
+    
+    This endpoint retrieves the schema that was previously ingested into Qdrant,
+    avoiding the need to reconnect to the database.
+    
+    - **project_id**: Project identifier
+    """
+    try:
+        from src.services import QdrantService
+        from src.schemas import ColumnInfo
+        
+        # Initialize Qdrant service
+        qdrant_service = QdrantService()
+        
+        # Check if project exists
+        if not qdrant_service.validate_project_exists(request.project_id):
+            return QdrantSchemaResponse(
+                success=False,
+                project_id=request.project_id,
+                table_count=0,
+                tables=[],
+                message=f"No schema found for project_id: {request.project_id}",
+                error="Project not found in Qdrant. Please ingest the schema first using /ingest-schema"
+            )
+        
+        # Get full schema from Qdrant
+        schema_data = qdrant_service.get_full_schema(request.project_id)
+        
+        if "error" in schema_data:
+            return QdrantSchemaResponse(
+                success=False,
+                project_id=request.project_id,
+                table_count=0,
+                tables=[],
+                message="Failed to retrieve schema from Qdrant",
+                error=schema_data.get("error")
+            )
+        
+        # Convert schema data to TableInfo format
+        from src.schemas import TableInfo
+        tables = []
+        db_type = None
+        
+        for table_name, table_data in schema_data.get("tables", {}).items():
+            columns = []
+            for col in table_data.get("columns", []):
+                if isinstance(col, dict):
+                    columns.append(ColumnInfo(
+                        name=col.get("name", ""),
+                        type=col.get("type", ""),
+                        nullable=col.get("nullable", True)
+                    ))
+            
+            tables.append(TableInfo(
+                name=table_name,
+                columns=columns
+            ))
+            
+            # Get db_type from first table's metadata (all should be same)
+            if db_type is None and table_data.get("db_type"):
+                db_type = table_data.get("db_type")
+        
+        return QdrantSchemaResponse(
+            success=True,
+            project_id=request.project_id,
+            db_type=db_type,
+            table_count=len(tables),
+            tables=tables,
+            message=f"Successfully retrieved schema for project {request.project_id} from Qdrant"
+        )
+        
+    except Exception as e:
+        return QdrantSchemaResponse(
+            success=False,
+            project_id=request.project_id,
+            table_count=0,
+            tables=[],
+            message=f"Failed to retrieve schema: {str(e)}",
+            error=str(e)
+        )
+

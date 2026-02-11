@@ -95,6 +95,20 @@ class UpdateSchemaRequest(BaseModel):
     db_type: str  # "postgresql" or "mysql"
     connection_string: str
 
+class QdrantSchemaRequest(BaseModel):
+    """Request model for retrieving schema from Qdrant."""
+    project_id: str
+
+class QdrantSchemaResponse(BaseModel):
+    """Response model for schema retrieved from Qdrant."""
+    success: bool
+    project_id: str
+    db_type: Optional[str] = None
+    table_count: int
+    tables: List[TableInfo]
+    message: Optional[str] = None
+    error: Optional[str] = None
+
 
 
 

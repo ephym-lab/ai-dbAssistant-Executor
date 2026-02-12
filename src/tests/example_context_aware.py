@@ -148,8 +148,8 @@ def example_workflow():
     result = response.json()
     
     if result['decision'] == 'INVALID':
-        print(f"❌ Request invalid: {result['content']}")
-        print(f"\n💡 Suggestions:")
+        print(f"Request invalid: {result['content']}")
+        print(f"\nSuggestions:")
         for suggestion in result.get('suggestions', []):
             print(f"   - {suggestion}")
         
@@ -158,7 +158,7 @@ def example_workflow():
         # (In a real app, you might parse the suggestion or ask the user)
         
     elif result['decision'] == 'EXECUTE':
-        print(f"✅ SQL generated successfully!")
+        print(f"SQL generated successfully!")
         print(f"\nSQL Query:")
         print(result['query'])
         

@@ -8,13 +8,14 @@ from src.schemas import (
     QuestionRequest, SQLResponse, ExecuteRequest, ExecuteResponse, 
     DBInfoResponse, ConnectRequest, SchemaRequest, SchemaResponse,
     IngestSchemaRequest, IngestSchemaResponse, UpdateSchemaRequest,
-    QdrantSchemaRequest, QdrantSchemaResponse
+    QdrantSchemaRequest, QdrantSchemaResponse,
+    DeleteSchemaRequest, DeleteSchemaResponse
 )
 
 # Load environment variables
 load_dotenv()
 
-# Initialize FastAPI app
+# Initialize FastAPI, app
 app = FastAPI(
     title="AI SQL Assistant API",
     description="Convert natural language to SQL queries",
@@ -49,7 +50,8 @@ def read_root():
             "POST /get-schema": "Get database schema by connecting to database",
             "POST /get-schema-from-qdrant": "Get database schema from Qdrant (requires only project_id)",
             "POST /ingest-schema": "Ingest database schema into Qdrant for context-aware generation",
-            "POST /update-schema": "Update existing project schema in Qdrant (replaces old schema)"
+            "POST /update-schema": "Update existing project schema in Qdrant (replaces old schema)",
+            "POST /delete-schema": "Delete project schema from Qdrant"
         }
     }
 
@@ -575,7 +577,16 @@ def get_schema_from_qdrant(request: QdrantSchemaRequest):
         
         # Initialize Qdrant service
         qdrant_service = QdrantService()
-        
+        #verify the type of project_id
+        if not isinstance(request.project_id, str):
+            return QdrantSchemaResponse(
+                success=False,
+                project_id=request.project_id,
+                table_count=0,
+                tables=[],
+                message="Failed to retrieve schema from Qdrant",
+                error="project_id must be a string"
+            )
         # Check if project exists
         if not qdrant_service.validate_project_exists(request.project_id):
             return QdrantSchemaResponse(
@@ -642,4 +653,56 @@ def get_schema_from_qdrant(request: QdrantSchemaRequest):
             message=f"Failed to retrieve schema: {str(e)}",
             error=str(e)
         )
+
+@app.post("/delete-schema", response_model=DeleteSchemaResponse)
+def delete_schema(request: DeleteSchemaRequest):
+    """
+    Delete project schema from Qdrant.
+    
+    This endpoint removes all schema data for a project from Qdrant.
+    Use this when a project is deleted or when you want to completely
+    remove schema data before re-ingesting.
+    
+    - **project_id**: Project identifier
+    """
+    try:
+        from src.services import QdrantService
+        
+        # Initialize Qdrant service
+        qdrant_service = QdrantService()
+        
+        # Check if project exists
+        if not qdrant_service.validate_project_exists(request.project_id):
+            return DeleteSchemaResponse(
+                success=False,
+                project_id=request.project_id,
+                message=f"No schema found for project_id: {request.project_id}",
+                error="Project not found in Qdrant"
+            )
+        
+        # Delete schema
+        result = qdrant_service.delete_project_schema(request.project_id)
+        
+        if result.get("success"):
+            return DeleteSchemaResponse(
+                success=True,
+                project_id=request.project_id,
+                message=result.get("message", f"Successfully deleted schema for project {request.project_id}")
+            )
+        else:
+            return DeleteSchemaResponse(
+                success=False,
+                project_id=request.project_id,
+                message=result.get("message", "Failed to delete schema"),
+                error=result.get("error")
+            )
+        
+    except Exception as e:
+        return DeleteSchemaResponse(
+            success=False,
+            project_id=request.project_id,
+            message=f"Failed to delete schema: {str(e)}",
+            error=str(e)
+        )
+
 

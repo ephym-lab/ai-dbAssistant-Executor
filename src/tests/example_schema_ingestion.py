@@ -20,7 +20,7 @@ def ingest_schema_example():
     
     # Configuration
     payload = {
-        "project_id": "11",
+        "project_id": "19",
         "db_type": "postgresql",
         "connection_string": "",
         "clear_existing": True  # Clear any existing schema for this project
@@ -39,16 +39,16 @@ def ingest_schema_example():
         result = response.json()
         
         if result['success']:
-            print(f"\n✅ Success!")
+            print(f"\nSuccess!")
             print(f"   Project ID: {result['project_id']}")
             print(f"   Tables Ingested: {result['tables_ingested']}")
             print(f"   Message: {result['message']}")
         else:
-            print(f"\n❌ Failed!")
-            print(f"   Error: {result.get('error', 'Unknown error')}")
-            print(f"   Message: {result['message']}")
+            print(f"\nFailed!")
+            print(f"Error: {result.get('error', 'Unknown error')}")
+            print(f"Message: {result['message']}")
     else:
-        print(f"\n❌ HTTP Error: {response.text}")
+        print(f"\nHTTP Error: {response.text}")
     
     return response
 
@@ -76,15 +76,15 @@ def test_context_aware_after_ingestion():
         print(f"Explanation: {result['content']}")
         
         if result['decision'] == 'EXECUTE':
-            print(f"\n✅ Generated SQL:")
+            print(f"\nGenerated SQL:")
             print(result['query'])
         elif result['decision'] == 'INVALID':
-            print(f"\n❌ Invalid Request")
+            print(f"\nInvalid Request")
             print("Suggestions:")
             for i, suggestion in enumerate(result.get('suggestions', []), 1):
                 print(f"  {i}. {suggestion}")
     else:
-        print(f"\n❌ Error: {response.text}")
+        print(f"\nError: {response.text}")
 
 def complete_workflow():
     """Complete workflow: Ingest schema then use it."""
@@ -93,7 +93,7 @@ def complete_workflow():
     print("="*60)
     
     # Step 1: Ingest schema
-    print("\n📥 Step 1: Ingesting database schema...")
+    print("\nStep 1: Ingesting database schema...")
     ingest_payload = {
         "project_id": "ecommerce-app",
         "db_type": "postgresql",
@@ -106,16 +106,16 @@ def complete_workflow():
     if ingest_response.status_code == 200:
         result = ingest_response.json()
         if result['success']:
-            print(f"   ✅ Ingested {result['tables_ingested']} tables")
+            print(f"  Ingested {result['tables_ingested']} tables")
         else:
-            print(f"   ❌ Ingestion failed: {result.get('error')}")
+            print(f"  Ingestion failed: {result.get('error')}")
             return
     else:
-        print(f"   ❌ HTTP Error: {ingest_response.text}")
+        print(f"   HTTP Error: {ingest_response.text}")
         return
     
     # Step 2: Generate SQL with context
-    print("\n🤖 Step 2: Generating context-aware SQL...")
+    print("\nStep 2: Generating context-aware SQL...")
     
     questions = [
         "Show me all orders from the last week",
@@ -138,14 +138,14 @@ def complete_workflow():
             result = gen_response.json()
             
             if result['decision'] == 'EXECUTE':
-                print(f"   ✅ {result['decision']}")
-                print(f"   SQL: {result['query'][:80]}...")
+                print(f"{result['decision']}")
+                print(f"SQL: {result['query'][:80]}...")
             elif result['decision'] == 'INVALID':
-                print(f"   ❌ {result['decision']}: {result['content']}")
+                print(f"{result['decision']}: {result['content']}")
             else:
-                print(f"   ℹ️  {result['decision']}: {result['content']}")
+                print(f"{result['decision']}: {result['content']}")
         else:
-            print(f"   ❌ Error: {gen_response.text}")
+            print(f"Error: {gen_response.text}")
 
 def update_schema_example():
     """Example: Update existing schema (clear and re-ingest)."""
@@ -154,25 +154,56 @@ def update_schema_example():
     print("="*60)
     
     payload = {
-        "project_id": "my-project-123",
+        "project_id": "19",
         "db_type": "postgresql",
         "connection_string": "postgresql://user:password@localhost:5432/mydb",
         "clear_existing": True  # This will delete old schema first
     }
     
-    print("\n🔄 Updating schema (clearing existing data)...")
+    print("\nUpdating schema (clearing existing data)...")
     
     response = requests.post(f"{BASE_URL}/ingest-schema", json=payload)
     
     if response.status_code == 200:
         result = response.json()
         if result['success']:
-            print(f"✅ Schema updated successfully!")
-            print(f"   Tables: {result['tables_ingested']}")
+            print(f"Schema updated successfully!")
+            print(f"Tables: {result['tables_ingested']}")
         else:
-            print(f"❌ Update failed: {result.get('error')}")
+            print(f"Update failed: {result.get('error')}")
     else:
-        print(f"❌ HTTP Error: {response.text}")
+        print(f"HTTP Error: {response.text}")
+
+
+#get schema from qdrant
+
+def get_schema_from_qdrant():
+    """Example: Get schema from Qdrant."""
+    print("\n" + "="*60)
+    print("  Get Schema from Qdrant Example")
+    print("="*60)
+    
+    payload = {
+        "project_id": "19"
+    }
+    
+    print("\nGetting schema from Qdrant...")
+    
+    response = requests.post(f"{BASE_URL}/get-schema-from-qdrant", json=payload)
+    
+    if response.status_code == 200:
+        result = response.json()
+        if result['success']:
+            print(f"Schema retrieved successfully!")
+            print(f"Project ID: {result['project_id']}")
+            print(f"DB Type: {result.get('db_type')}")
+            print(f"Table Count: {result['table_count']}")
+            print(f"Tables: {[t['name'] for t in result['tables']]}")
+        else:
+            print(f"Retrieval failed: {result.get('error')}")
+    else:
+        print(f"HTTP Error: {response.text}")
+
 
 if __name__ == "__main__":
     print("\n" + "="*60)
@@ -185,8 +216,9 @@ if __name__ == "__main__":
     print("2. Test context-aware generation after ingestion")
     print("3. Complete workflow (ingest + generate)")
     print("4. Update existing schema")
+    print("5. Get schema from Qdrant")
     
-    choice = input("\nSelect example (1-4) or press Enter for all: ").strip()
+    choice = input("\nSelect example (1-5) or press Enter for all: ").strip()
     
     if choice == "1":
         ingest_schema_example()
@@ -196,6 +228,8 @@ if __name__ == "__main__":
         complete_workflow()
     elif choice == "4":
         update_schema_example()
+    elif choice == "5":
+        get_schema_from_qdrant()
     else:
         # Run all examples
         ingest_schema_example()

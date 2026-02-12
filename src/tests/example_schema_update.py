@@ -37,16 +37,16 @@ def update_schema_example():
         result = response.json()
         
         if result['success']:
-            print(f"\n✅ Schema Updated!")
+            print(f"\nSchema Updated!")
             print(f"   Project ID: {result['project_id']}")
             print(f"   Tables Updated: {result['tables_ingested']}")
             print(f"   Message: {result['message']}")
         else:
-            print(f"\n❌ Update Failed!")
+            print(f"\nUpdate Failed!")
             print(f"   Error: {result.get('error')}")
             print(f"   Message: {result['message']}")
     else:
-        print(f"\n❌ HTTP Error: {response.text}")
+        print(f"\nHTTP Error: {response.text}")
 
 def compare_ingest_vs_update():
     """Compare /ingest-schema vs /update-schema endpoints."""
@@ -54,19 +54,19 @@ def compare_ingest_vs_update():
     print("  Ingest vs Update Comparison")
     print("="*60)
     
-    print("\n📥 /ingest-schema:")
+    print("\n/ingest-schema:")
     print("   - Can preserve existing schema (clear_existing=False)")
     print("   - Can replace schema (clear_existing=True)")
     print("   - More flexible")
     print("   - Use for initial setup or when you want control")
     
-    print("\n🔄 /update-schema:")
+    print("\n/update-schema:")
     print("   - Always replaces existing schema")
     print("   - Simpler API (no clear_existing parameter)")
     print("   - More explicit intent")
     print("   - Use when schema has changed and needs refresh")
     
-    print("\n💡 Recommendation:")
+    print("\nRecommendation:")
     print("   - First time: Use /ingest-schema")
     print("   - Schema changed: Use /update-schema")
 
@@ -80,7 +80,7 @@ def workflow_with_update():
     connection_string = "postgresql://user:pass@localhost:5432/ecommerce"
     
     # Step 1: Initial ingestion
-    print("\n📥 Step 1: Initial Schema Ingestion")
+    print("\nStep 1: Initial Schema Ingestion")
     print("   (First time setup)")
     
     ingest_payload = {
@@ -94,10 +94,10 @@ def workflow_with_update():
     if response.status_code == 200:
         result = response.json()
         if result['success']:
-            print(f"   ✅ Ingested {result['tables_ingested']} tables")
+            print(f"Ingested {result['tables_ingested']} tables")
     
     # Step 2: Use the schema
-    print("\n🤖 Step 2: Using Context-Aware Generation")
+    print("\nStep 2: Using Context-Aware Generation")
     print("   (Normal operation)")
     
     gen_payload = {
@@ -109,15 +109,15 @@ def workflow_with_update():
     response = requests.post(f"{BASE_URL}/generate-sql", json=gen_payload)
     if response.status_code == 200:
         result = response.json()
-        print(f"   ✅ Generated SQL: {result.get('query', 'N/A')[:60]}...")
+        print(f"Generated SQL: {result.get('query', 'N/A')[:60]}...")
     
     # Step 3: Database schema changes
-    print("\n🔧 Step 3: Database Schema Changed")
+    print("\nStep 3: Database Schema Changed")
     print("   (Added new columns, tables, etc.)")
     print("   Simulating schema change...")
     
     # Step 4: Update schema
-    print("\n🔄 Step 4: Update Schema in Qdrant")
+    print("\nStep 4: Update Schema in Qdrant")
     print("   (Refresh after changes)")
     
     update_payload = {
@@ -130,11 +130,11 @@ def workflow_with_update():
     if response.status_code == 200:
         result = response.json()
         if result['success']:
-            print(f"   ✅ Updated {result['tables_ingested']} tables")
-            print(f"   Message: {result['message']}")
+            print(f"Updated {result['tables_ingested']} tables")
+            print(f"Message: {result['message']}")
     
     # Step 5: Continue using with fresh schema
-    print("\n✨ Step 5: Continue Using with Fresh Schema")
+    print("\nStep 5: Continue Using with Fresh Schema")
     print("   (AI now knows about new tables/columns)")
     
     gen_payload = {
@@ -146,7 +146,7 @@ def workflow_with_update():
     response = requests.post(f"{BASE_URL}/generate-sql", json=gen_payload)
     if response.status_code == 200:
         result = response.json()
-        print(f"   Decision: {result['decision']}")
+        print(f"Decision: {result['decision']}")
 
 if __name__ == "__main__":
     print("\n" + "="*60)

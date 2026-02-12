@@ -4,7 +4,9 @@ from .sql_schemas import (
     SchemaRequest, SchemaResponse, IngestSchemaRequest, IngestSchemaResponse,
     UpdateSchemaRequest,
     QdrantSchemaRequest,
-    QdrantSchemaResponse
+    QdrantSchemaResponse,
+    DeleteSchemaRequest,
+    DeleteSchemaResponse
 )
 
 __all__ = [
@@ -13,7 +15,9 @@ __all__ = [
     "SchemaRequest", "SchemaResponse", "IngestSchemaRequest", "IngestSchemaResponse",
     "UpdateSchemaRequest",
     "QdrantSchemaRequest",
-    "QdrantSchemaResponse"
+    "QdrantSchemaResponse",
+    "DeleteSchemaRequest",
+    "DeleteSchemaResponse"
 ]
 
 

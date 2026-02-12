@@ -39,7 +39,7 @@ def reset_collection():
         if collection_name in collection_names:
             print(f"Deleting existing collection: {collection_name}")
             client.delete_collection(collection_name=collection_name)
-            print(f"✓ Collection '{collection_name}' deleted successfully")
+            print(f"Collection '{collection_name}' deleted successfully")
         else:
             print(f"Collection '{collection_name}' does not exist")
         
@@ -55,11 +55,11 @@ def reset_collection():
                 distance=Distance.COSINE
             )
         )
-        print(f"✓ Collection '{collection_name}' created successfully")
+        print(f"Collection '{collection_name}' created successfully")
         print("\nYou can now use the /ingest-schema endpoint!")
         
     except Exception as e:
-        print(f"✗ Error: {e}")
+        print(f"Error: {e}")
         return False
     
     return True

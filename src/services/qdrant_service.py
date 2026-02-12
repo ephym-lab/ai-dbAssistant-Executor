@@ -229,10 +229,14 @@ class QdrantService:
             List of schema chunks with metadata
         """
         try:
-            # Search with project_id filter
-            search_result = self.client.search(
+            # Generate embedding for the query using FastEmbed
+            embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+            query_embedding = list(embedding_model.embed([query]))[0]
+            
+            # Search with project_id filter using query_points
+            search_result = self.client.query_points(
                 collection_name=self.collection_name,
-                query_text=query,
+                query=query_embedding.tolist(),
                 query_filter=Filter(
                     must=[
                         FieldCondition(
@@ -246,7 +250,7 @@ class QdrantService:
             
             # Extract and format results
             schema_chunks = []
-            for hit in search_result:
+            for hit in search_result.points:
                 schema_chunks.append({
                     "score": hit.score,
                     "content": hit.payload.get("content", ""),

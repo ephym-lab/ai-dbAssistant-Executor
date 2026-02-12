@@ -109,6 +109,17 @@ class QdrantSchemaResponse(BaseModel):
     message: Optional[str] = None
     error: Optional[str] = None
 
+class DeleteSchemaRequest(BaseModel):
+    """Request model for deleting schema from Qdrant."""
+    project_id: str
+
+class DeleteSchemaResponse(BaseModel):
+    """Response model for schema deletion."""
+    success: bool
+    project_id: str
+    message: str
+    error: Optional[str] = None
+
 
 
 

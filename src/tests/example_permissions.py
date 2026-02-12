@@ -38,7 +38,7 @@ def main():
     print_response("Connection", connect_resp)
     
     if connect_resp.status_code != 200:
-        print("\n❌ Failed to connect. Exiting.")
+        print("\nFailed to connect. Exiting.")
         return
     
     # Check default permissions

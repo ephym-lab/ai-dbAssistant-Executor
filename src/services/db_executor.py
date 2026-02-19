@@ -404,6 +404,8 @@ class MySQLExecutor(DBExecutor):
         finally:
             cursor.close()
 
+            
+
 
 class DBExecutorFactory:
     """Factory for creating database executors."""

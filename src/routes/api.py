@@ -161,162 +161,162 @@ def health_check():
         "service": ai_service.__class__.__name__
     }
 
-@app.post("/execute-sql", response_model=ExecuteResponse)
-def execute_sql(request: ExecuteRequest):
-    """
-    Execute a SQL query against the connected database.
+# @app.post("/execute-sql", response_model=ExecuteResponse)
+# def execute_sql(request: ExecuteRequest):
+#     """
+#     Execute a SQL query against the connected database.
     
-    Note: You must connect to a database using /connect-db before executing queries.
-    Validation is handled by the Go backend.
+#     Note: You must connect to a database using /connect-db before executing queries.
+#     Validation is handled by the Go backend.
     
-    - **query**: SQL query to execute
-    - **dry_run**: If true, validates query without executing 
-    """
-    global db_executor
+#     - **query**: SQL query to execute
+#     - **dry_run**: If true, validates query without executing 
+#     """
+#     global db_executor
     
-    try:
-        # Check if database is connected
-        if not db_executor or not db_executor.connection:
-            raise HTTPException(
-                status_code=400,
-                detail="No database connection. Please connect to a database using /connect-db endpoint first."
-            )
+#     try:
+#         # Check if database is connected
+#         if not db_executor or not db_executor.connection:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="No database connection. Please connect to a database using /connect-db endpoint first."
+#             )
         
-        # Get configuration
-        max_rows = int(os.getenv("MAX_ROWS_RETURNED", 1000))
+#         # Get configuration
+#         max_rows = int(os.getenv("MAX_ROWS_RETURNED", 1000))
         
-        # Add LIMIT if needed for SELECT queries
-        query = QueryValidator.add_limit_if_needed(request.query, max_rows)
+#         # Add LIMIT if needed for SELECT queries
+#         query = QueryValidator.add_limit_if_needed(request.query, max_rows)
         
-        # Execute query using the persistent connection
-        result = db_executor.execute_query(query, dry_run=request.dry_run)
+#         # Execute query using the persistent connection
+#         result = db_executor.execute_query(query, dry_run=request.dry_run)
         
-        return ExecuteResponse(**result)
+#         return ExecuteResponse(**result)
         
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/validate-sql", response_model=ExecuteResponse)
-def validate_sql(request: ExecuteRequest):
-    """
-    Validate SQL query without executing (dry-run mode).
+# @app.post("/validate-sql", response_model=ExecuteResponse)
+# def validate_sql(request: ExecuteRequest):
+#     """
+#     Validate SQL query without executing (dry-run mode).
     
-    - **query**: SQL query to validate
-    """
-    request.dry_run = True
-    return execute_sql(request)
+#     - **query**: SQL query to validate
+#     """
+#     request.dry_run = True
+#     return execute_sql(request)
 
-@app.get("/db-info", response_model=DBInfoResponse)
-def get_db_info():
-    """
-    Get database connection information and table schema.
+# @app.get("/db-info", response_model=DBInfoResponse)
+# def get_db_info():
+#     """
+#     Get database connection information and table schema.
     
-    Note: Returns info only if connected via /connect-db endpoint.
-    """
-    global db_executor
+#     Note: Returns info only if connected via /connect-db endpoint.
+#     """
+#     global db_executor
     
-    try:
-        # Check if database is connected
-        if not db_executor:
-            raise HTTPException(
-                status_code=400,
-                detail="No database connection. Please connect to a database using /connect-db endpoint first."
-            )
+#     try:
+#         # Check if database is connected
+#         if not db_executor:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="No database connection. Please connect to a database using /connect-db endpoint first."
+#             )
         
-        info = db_executor.get_connection_info()
-        tables = db_executor.get_table_schema()
+#         info = db_executor.get_connection_info()
+#         tables = db_executor.get_table_schema()
         
-        # Add database_name alias and tables
-        info["database_name"] = info["database"]
-        info["tables"] = tables
+#         # Add database_name alias and tables
+#         info["database_name"] = info["database"]
+#         info["tables"] = tables
         
-        return DBInfoResponse(**info)
+#         return DBInfoResponse(**info)
         
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/connect-db")
-def connect_database(request: ConnectRequest):
-    """
-    Establish a persistent connection to the database using a connection string.
+# @app.post("/connect-db")
+# def connect_database(request: ConnectRequest):
+#     """
+#     Establish a persistent connection to the database using a connection string.
     
-    - **db_type**: Database type ("postgresql" or "mysql")
-    - **connection_string**: Database connection string (e.g., postgresql://user:pass@host:port/db)
-    - **project_id**: Project ID (stored for reference, validation handled by Go backend)
-    """
-    global db_executor
+#     - **db_type**: Database type ("postgresql" or "mysql")
+#     - **connection_string**: Database connection string (e.g., postgresql://user:pass@host:port/db)
+#     - **project_id**: Project ID (stored for reference, validation handled by Go backend)
+#     """
+#     global db_executor
     
-    try:
-        # Check if already connected
-        if db_executor and db_executor.connection:
-            return {
-                "success": True,
-                "message": "Database already connected. Disconnect first to connect to a different database.",
-                "connection_info": db_executor.get_connection_info()
-            }
+#     try:
+#         # Check if already connected
+#         if db_executor and db_executor.connection:
+#             return {
+#                 "success": True,
+#                 "message": "Database already connected. Disconnect first to connect to a different database.",
+#                 "connection_info": db_executor.get_connection_info()
+#             }
         
-        # Create executor from connection string with db_type
-        db_executor = DBExecutorFactory.from_connection_string(
-            db_type=request.db_type,
-            connection_string=request.connection_string
-        )
-        if not db_executor:
-            raise HTTPException(
-                status_code=400,
-                detail="Failed to create database executor from connection string."
-            )
+#         # Create executor from connection string with db_type
+#         db_executor = DBExecutorFactory.from_connection_string(
+#             db_type=request.db_type,
+#             connection_string=request.connection_string
+#         )
+#         if not db_executor:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Failed to create database executor from connection string."
+#             )
         
-        # Connect
-        db_executor.connect()
+#         # Connect
+#         db_executor.connect()
         
-        return {
-            "success": True,
-            "message": "Database connected successfully",
-            "connection_info": db_executor.get_connection_info(),
-            "project_id": request.project_id
-        }
+#         return {
+#             "success": True,
+#             "message": "Database connected successfully",
+#             "connection_info": db_executor.get_connection_info(),
+#             "project_id": request.project_id
+#         }
         
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#     except ValueError as e:
+#         raise HTTPException(status_code=400, detail=str(e))
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/disconnect-db")
-def disconnect_database():
-    """
-    Disconnect from the database.
-    """
-    global db_executor
+# @app.post("/disconnect-db")
+# def disconnect_database():
+#     """
+#     Disconnect from the database.
+#     """
+#     global db_executor
     
-    try:
-        # Check if connected
-        if not db_executor or not db_executor.connection:
-            return {
-                "success": True,
-                "message": "Database already disconnected"
-            }
+#     try:
+#         # Check if connected
+#         if not db_executor or not db_executor.connection:
+#             return {
+#                 "success": True,
+#                 "message": "Database already disconnected"
+#             }
         
-        # Get connection info before disconnecting
-        connection_info = db_executor.get_connection_info()
+#         # Get connection info before disconnecting
+#         connection_info = db_executor.get_connection_info()
         
-        # Disconnect
-        db_executor.disconnect()
-        db_executor = None
+#         # Disconnect
+#         db_executor.disconnect()
+#         db_executor = None
         
-        return {
-            "success": True,
-            "message": "Database disconnected successfully",
-            "previous_connection": connection_info
-        }
+#         return {
+#             "success": True,
+#             "message": "Database disconnected successfully",
+#             "previous_connection": connection_info
+#         }
         
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/get-schema", response_model=SchemaResponse)
 def get_schema(request: SchemaRequest):

@@ -10,6 +10,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check secrets are set
+        run: |
+          if [ -z "${{ secrets.VM_HOST }}" ]; then
+            echo "VM_HOST is EMPTY"
+          else
+            echo "VM_HOST is set"
+          fi  
+
       - name: SSH into VM and deploy
         uses: appleboy/ssh-action@v1
         with:

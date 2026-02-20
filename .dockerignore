@@ -39,3 +39,6 @@ src/tests/
 # Docker
 Dockerfile
 docker-compose.yml
+
+privatereadme/
+

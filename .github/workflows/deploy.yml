@@ -17,6 +17,7 @@ jobs:
           else
             echo "VM_HOST is set"
           fi  
+          
 
       - name: SSH into VM and deploy
         uses: appleboy/ssh-action@v1

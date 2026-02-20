@@ -16,8 +16,7 @@ jobs:
             echo "VM_HOST is EMPTY"
           else
             echo "VM_HOST is set"
-          fi  
-
+          fi
 
       - name: SSH into VM and deploy
         uses: appleboy/ssh-action@v1

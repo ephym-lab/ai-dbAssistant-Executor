@@ -1,7 +1,10 @@
 import os
 import json
+import time
 from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter, Histogram, Gauge
 from src.config.prompts import SYSTEM_PROMPT
 from src.services import AIServiceFactory, DBExecutorFactory, QueryValidator
 from src.schemas import (
@@ -21,6 +24,38 @@ app = FastAPI(
     description="Convert natural language to SQL queries",
     version="1.0.0"
 )
+
+# ── Prometheus Custom Metrics ───────────────────────────────────────────────
+AI_RESPONSE_DURATION = Histogram(
+    "ai_response_duration_seconds",
+    "Time spent waiting for AI service response",
+    buckets=[0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+)
+
+SQL_GENERATION_TOTAL = Counter(
+    "sql_generation_total",
+    "Total SQL generation requests",
+    ["decision"],  # EXECUTE, EXPLAIN
+)
+
+SCHEMA_OPERATIONS_TOTAL = Counter(
+    "schema_operations_total",
+    "Total schema operations",
+    ["operation", "status"],  # operation: ingest/update/delete/retrieve, status: success/failure
+)
+
+QDRANT_OPERATIONS_TOTAL = Counter(
+    "qdrant_operations_total",
+    "Total Qdrant operations",
+    ["operation", "status"],  # operation: retrieve_context/ingest/delete/validate, status: success/failure
+)
+
+# ── Prometheus Auto-Instrumentation ─────────────────────────────────────────
+Instrumentator(
+    should_group_status_codes=False,
+    should_ignore_untemplated=True,
+    excluded_handlers=["/metrics"],
+).instrument(app).expose(app)
 
 # Initialize AI Service
 ai_service = AIServiceFactory.get_service()
@@ -111,8 +146,10 @@ def generate_sql(request: QuestionRequest):
             db_type_context = f"Target Database: {request.db_type.upper()}\n"
             user_input = db_type_context + user_input
         
-        # Get response from AI service
+        # Get response from AI service (timed for Prometheus)
+        ai_start = time.time()
         response_str = ai_service.get_response(user_input, SYSTEM_PROMPT)
+        AI_RESPONSE_DURATION.observe(time.time() - ai_start)
         
         # Clean and parse JSON response
         clean_str = response_str
@@ -136,6 +173,7 @@ def generate_sql(request: QuestionRequest):
                 else:
                     decision = "EXPLAIN"
             
+            SQL_GENERATION_TOTAL.labels(decision=decision).inc()
             return SQLResponse(
                 decision=decision,
                 content=content,
@@ -144,6 +182,7 @@ def generate_sql(request: QuestionRequest):
             )
         except json.JSONDecodeError:
             # If response is not valid JSON, return it as an error
+            SQL_GENERATION_TOTAL.labels(decision="ERROR").inc()
             return SQLResponse(
                 decision="EXPLAIN",
                 content=f"Error parsing AI response: {response_str}",
@@ -435,6 +474,8 @@ def ingest_schema(request: IngestSchemaRequest):
             clear_existing=request.clear_existing
         )
         
+        SCHEMA_OPERATIONS_TOTAL.labels(operation="ingest", status="success" if result["success"] else "failure").inc()
+        QDRANT_OPERATIONS_TOTAL.labels(operation="ingest", status="success" if result["success"] else "failure").inc()
         return IngestSchemaResponse(
             success=result["success"],
             project_id=result["project_id"],
@@ -444,6 +485,7 @@ def ingest_schema(request: IngestSchemaRequest):
         )
         
     except ValueError as e:
+        SCHEMA_OPERATIONS_TOTAL.labels(operation="ingest", status="failure").inc()
         return IngestSchemaResponse(
             success=False,
             project_id=request.project_id,
@@ -453,6 +495,7 @@ def ingest_schema(request: IngestSchemaRequest):
     except HTTPException:
         raise
     except Exception as e:
+        SCHEMA_OPERATIONS_TOTAL.labels(operation="ingest", status="failure").inc()
         return IngestSchemaResponse(
             success=False,
             project_id=request.project_id,
@@ -529,6 +572,8 @@ def update_schema(request: UpdateSchemaRequest):
             clear_existing=True  # Always clear when updating
         )
         
+        SCHEMA_OPERATIONS_TOTAL.labels(operation="update", status="success" if result["success"] else "failure").inc()
+        QDRANT_OPERATIONS_TOTAL.labels(operation="ingest", status="success" if result["success"] else "failure").inc()
         return IngestSchemaResponse(
             success=result["success"],
             project_id=result["project_id"],
@@ -538,6 +583,7 @@ def update_schema(request: UpdateSchemaRequest):
         )
         
     except ValueError as e:
+        SCHEMA_OPERATIONS_TOTAL.labels(operation="update", status="failure").inc()
         return IngestSchemaResponse(
             success=False,
             project_id=request.project_id,
@@ -547,6 +593,7 @@ def update_schema(request: UpdateSchemaRequest):
     except HTTPException:
         raise
     except Exception as e:
+        SCHEMA_OPERATIONS_TOTAL.labels(operation="update", status="failure").inc()
         return IngestSchemaResponse(
             success=False,
             project_id=request.project_id,
@@ -635,6 +682,8 @@ def get_schema_from_qdrant(request: QdrantSchemaRequest):
             if db_type is None and table_data.get("db_type"):
                 db_type = table_data.get("db_type")
         
+        SCHEMA_OPERATIONS_TOTAL.labels(operation="retrieve", status="success").inc()
+        QDRANT_OPERATIONS_TOTAL.labels(operation="retrieve_context", status="success").inc()
         return QdrantSchemaResponse(
             success=True,
             project_id=request.project_id,
@@ -645,6 +694,7 @@ def get_schema_from_qdrant(request: QdrantSchemaRequest):
         )
         
     except Exception as e:
+        SCHEMA_OPERATIONS_TOTAL.labels(operation="retrieve", status="failure").inc()
         return QdrantSchemaResponse(
             success=False,
             project_id=request.project_id,
@@ -684,12 +734,15 @@ def delete_schema(request: DeleteSchemaRequest):
         result = qdrant_service.delete_project_schema(request.project_id)
         
         if result.get("success"):
+            SCHEMA_OPERATIONS_TOTAL.labels(operation="delete", status="success").inc()
+            QDRANT_OPERATIONS_TOTAL.labels(operation="delete", status="success").inc()
             return DeleteSchemaResponse(
                 success=True,
                 project_id=request.project_id,
                 message=result.get("message", f"Successfully deleted schema for project {request.project_id}")
             )
         else:
+            SCHEMA_OPERATIONS_TOTAL.labels(operation="delete", status="failure").inc()
             return DeleteSchemaResponse(
                 success=False,
                 project_id=request.project_id,
@@ -698,6 +751,7 @@ def delete_schema(request: DeleteSchemaRequest):
             )
         
     except Exception as e:
+        SCHEMA_OPERATIONS_TOTAL.labels(operation="delete", status="failure").inc()
         return DeleteSchemaResponse(
             success=False,
             project_id=request.project_id,

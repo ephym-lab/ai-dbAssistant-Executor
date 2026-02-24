@@ -8,3 +8,4 @@ mysql-connector-python
 requests
 qdrant-client
 fastembed
+prometheus-fastapi-instrumentator

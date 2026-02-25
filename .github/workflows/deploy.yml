@@ -27,15 +27,4 @@ jobs:
           script: |
             cd ~/ai-dbAssistant-Executor
             git pull origin deployment
-
-            # Ensure monitoring config directories exist
-            mkdir -p monitoring/prometheus
-            mkdir -p monitoring/grafana/provisioning/datasources
-            mkdir -p monitoring/grafana/provisioning/dashboards
-            mkdir -p monitoring/grafana/dashboards
-
-            # Stop existing containers and remove orphans
-            docker compose down --remove-orphans
-
-            # Build and start all services (app, prometheus, grafana)
             docker compose up -d --build --force-recreate
